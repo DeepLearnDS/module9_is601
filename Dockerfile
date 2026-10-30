@@ -10,7 +10,7 @@ RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends gcc python3-dev libssl-dev curl && \
     rm -rf /var/lib/apt/lists/* && \
-    python -m pip install --no-cache-dir --upgrade pip setuptools==78.1.1 wheel && \
+    python -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
     groupadd -r appgroup && \
     useradd -r -g appgroup appuser
 
