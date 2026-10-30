@@ -1,4 +1,3 @@
-
 name: CI/CD
 
 on:
@@ -10,29 +9,21 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: myappdb
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - uses: actions/cache@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
         with:
           path: |
             venv
@@ -45,25 +36,56 @@ jobs:
         run: |
           python -m venv venv
           source venv/bin/activate
-          pip install --upgrade pip setuptools wheel
+          python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
           playwright install --with-deps chromium
 
-      - name: Run tests
+      - name: Start Docker Compose
+        run: docker compose up -d --build
+
+      - name: Wait for FastAPI
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/health; then
+              echo "FastAPI is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "FastAPI failed to start"
+          docker compose ps
+          docker compose logs
+          exit 1
+
+      - name: Run unit tests
         run: |
           source venv/bin/activate
           pytest tests/unit/ --cov=app --junitxml=test-results/junit.xml
+
+      - name: Run integration tests
+        run: |
+          source venv/bin/activate
           pytest tests/integration/
+
+      - name: Run E2E tests
+        run: |
+          source venv/bin/activate
           pytest tests/e2e/
+
+      - name: Stop Docker Compose
+        if: always()
+        run: docker compose down
 
   security:
     needs: test
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Build image
+      - name: Build Docker image
         run: docker build --no-cache -t app:test .
 
       - name: Run Trivy vulnerability scanner
@@ -83,17 +105,22 @@ jobs:
     environment: production
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - uses: docker/login-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v5
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
         with:
+          context: .
           push: true
           tags: |
             kaw393939/601_module9:latest
